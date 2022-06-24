@@ -1,0 +1,3 @@
+/.idea
+/example/service.proto.pb
+/docker/root/twirp-mock
