@@ -15,4 +15,5 @@ example/service.proto.pb: example/service.proto
 
 .PHONY: example
 example: .docker example/service.proto.pb
-	docker run --rm -p 8888:8888 -v "$(PWD)/example:/data" twirpmock
+	# curl -X POST http://localhost:8888/twirp/twirpmock.example.Example/Echo -H 'Content-Type: application/json' -d '{"name": "There"}'
+	docker run --rm -p 8888:8888 -v "$(PWD)/example:/data" twirpmock /data/service.proto.pb /data/service.star
