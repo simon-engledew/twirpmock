@@ -11,9 +11,10 @@ service Example {
 }
 
 message EchoRequest {
-  string name = 2;
+  string name = 1;
 }
 
 message EchoResponse {
-  string message = 2;
+  string message = 1;
+  google.protobuf.Timestamp timestamp = 2;
 }

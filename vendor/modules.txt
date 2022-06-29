@@ -16,6 +16,7 @@ github.com/stretchr/testify/require
 ## explicit; go 1.13
 go.starlark.net/internal/compile
 go.starlark.net/internal/spell
+go.starlark.net/lib/json
 go.starlark.net/lib/proto
 go.starlark.net/resolve
 go.starlark.net/starlark

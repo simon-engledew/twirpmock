@@ -22,6 +22,6 @@ func TestBasic(t *testing.T) {
 	r := httptest.NewRequest("POST", "http://localhost:8888/twirp/twirpmock.example.Example/Echo", strings.NewReader(`{"name": "Test"}`))
 	r.Header.Set("Content-Type", "application/json")
 	mux.ServeHTTP(w, r)
-	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.Contains(t, w.Body.String(), "Hello Test!")
 }

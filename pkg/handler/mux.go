@@ -3,8 +3,10 @@ package handler
 import (
 	"fmt"
 	"github.com/brianvoe/gofakeit/v6"
+	sjson "go.starlark.net/lib/json"
 	sproto "go.starlark.net/lib/proto"
 	"go.starlark.net/starlark"
+	"go.starlark.net/starlarkstruct"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -17,34 +19,6 @@ import (
 	"time"
 )
 
-var predeclared = starlark.StringDict{
-	"now": starlark.NewBuiltin("now", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		now := time.Now()
-
-		var offset string
-		if err := starlark.UnpackPositionalArgs("now", args, kwargs, 0, &offset); err != nil {
-			return nil, err
-		}
-
-		if offset != "" {
-			duration, err := time.ParseDuration(offset)
-			if err != nil {
-				return nil, err
-			}
-			now = now.Add(duration)
-		}
-
-		return timestampMessage(thread, now)
-	}),
-	"generate": starlark.NewBuiltin("generate", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-		var template string
-		if err := starlark.UnpackPositionalArgs("generate", args, kwargs, 1, &template); err != nil {
-			return nil, err
-		}
-		return starlark.String(thread.Local("faker").(*gofakeit.Faker).Generate(template)), nil
-	}),
-}
-
 type ServeMux struct {
 	*http.ServeMux
 }
@@ -55,12 +29,12 @@ func NewServeMux() *ServeMux {
 	}
 }
 
-func timestampMessage(thread *starlark.Thread, t time.Time) (*sproto.Message, error) {
+func timestampMessage(desc protoreflect.MessageDescriptor, t time.Time) (*sproto.Message, error) {
 	data, err := proto.Marshal(timestamppb.New(t))
 	if err != nil {
 		return nil, err
 	}
-	return sproto.Unmarshal(thread.Local("timestamp").(protoreflect.MessageDescriptor), data)
+	return sproto.Unmarshal(desc, data)
 }
 
 func jsonUnmarshal(desc protoreflect.MessageDescriptor, data []byte) (*sproto.Message, error) {
@@ -77,7 +51,7 @@ func jsonUnmarshal(desc protoreflect.MessageDescriptor, data []byte) (*sproto.Me
 	return sproto.Unmarshal(desc, data)
 }
 
-func exec(thread *starlark.Thread, method protoreflect.MethodDescriptor, filename string, src interface{}, input starlark.Value) ([]byte, error) {
+func exec(thread *starlark.Thread, method protoreflect.MethodDescriptor, filename string, src interface{}, input starlark.Value, predeclared starlark.StringDict) ([]byte, error) {
 	globals, err := starlark.ExecFile(thread, filename, src, predeclared)
 	if err != nil {
 		return nil, err
@@ -93,7 +67,12 @@ func exec(thread *starlark.Thread, method protoreflect.MethodDescriptor, filenam
 		return nil, err
 	}
 
-	output, err := starlark.Call(thread, fn, starlark.Tuple{input, zero}, nil)
+	args := starlark.Tuple{input, zero}
+	if fn.(*starlark.Function).NumParams() == 1 {
+		args = starlark.Tuple{input}
+	}
+
+	output, err := starlark.Call(thread, fn, args, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -151,10 +130,56 @@ func (h *ServeMux) Handle(set *descriptorpb.FileDescriptorSet, filename string, 
 					}
 
 					thread := &starlark.Thread{Name: "ServeMux"}
-					thread.SetLocal("faker", gofakeit.New(1))
-					thread.SetLocal("timestamp", timestamp)
 
-					data, err := exec(thread, method, filename, src, req)
+					faker := gofakeit.New(1)
+
+					predeclared := starlark.StringDict{
+						"now": starlark.NewBuiltin("now", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+							now := time.Now()
+
+							var offset string
+							if err := starlark.UnpackPositionalArgs("now", args, kwargs, 0, &offset); err != nil {
+								return nil, err
+							}
+
+							if offset != "" {
+								duration, err := time.ParseDuration(offset)
+								if err != nil {
+									return nil, err
+								}
+								now = now.Add(duration)
+							}
+
+							return timestampMessage(timestamp.(protoreflect.MessageDescriptor), now)
+						}),
+						"json": sjson.Module,
+						"twirp": &starlarkstruct.Module{
+							Name: "twirp",
+							Members: starlark.StringDict{
+								"Path": starlark.String(path),
+								"Response": starlark.NewBuiltin("response", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+									var dict *starlark.Dict
+									if err := starlark.UnpackPositionalArgs("Response", args, kwargs, 1, &dict); err != nil {
+										return nil, err
+									}
+									data, err := starlark.Call(thread, sjson.Module.Members["encode"], starlark.Tuple{dict}, nil)
+									if err != nil {
+										return nil, err
+									}
+									return jsonUnmarshal(method.Output(), []byte(data.(starlark.String)))
+								}),
+							},
+						},
+						"generate": starlark.NewBuiltin("generate", func(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+							var template string
+							if err := starlark.UnpackPositionalArgs("generate", args, kwargs, 1, &template); err != nil {
+								return nil, err
+							}
+							return starlark.String(faker.Generate(template)), nil
+						}),
+					}
+
+					data, err := exec(thread, method, filename, src, req, predeclared)
 					if err != nil {
 						http.Error(w, err.Error(), http.StatusInternalServerError)
 						return
