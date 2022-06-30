@@ -2,4 +2,6 @@ FROM scratch
 
 COPY root/ /
 
-ENTRYPOINT ["/twirp-mock", "-h", "0.0.0.0"]
+LABEL org.opencontainers.image.source=https://github.com/simon-engledew/twirpmock/
+
+ENTRYPOINT ["/twirpmock", "-h", "0.0.0.0"]

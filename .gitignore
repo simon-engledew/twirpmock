@@ -1,3 +1,4 @@
 /.idea
+/.docker
 /example/service.proto.pb
-/docker/root/twirp-mock
+/docker/root/twirpmock
